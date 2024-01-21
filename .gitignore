@@ -19,3 +19,9 @@
 
 # Go workspace file
 go.work
+
+# Ignore copyrighted
+*.mp3
+
+.DS_Store
+__debug**
