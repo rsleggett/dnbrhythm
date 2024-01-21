@@ -107,12 +107,12 @@ func (g *Game) Draw(screen *ebiten.Image) {
 
 	//vector.StrokeLine(screen, 0, 300, 0, 500, 1, color.White, false)
 	//ebitenutil.DrawLine(screen, 10, 10, 500, 10, color.White)
-	totalLength := 4 * 60 * 1000
+	totalLength := 780
 
 	totalSongLength := 4 * 60 * 1000
 	for _, beat := range beats {
 		// Calculate the x-coordinate of the beat
-		x := float32(currentSongPositionX-(totalLength-(streamer.Position()/44100))) + float32(beat)/float32(totalSongLength)*float32(totalLength)
+		x := float32(currentSongPositionX-(totalSongLength-(streamer.Position()/44100))) + float32(beat)/float32(totalSongLength)*float32(totalLength)
 
 		// Draw the beat as a small line
 		vector.StrokeLine(screen, x, 305, x, 315, 1, color.White, false)
