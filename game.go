@@ -22,7 +22,6 @@ var streamer beep.StreamSeekCloser
 var upPressed bool
 var format beep.Format
 var beats []int
-var currentSongPositionX int
 
 var score int
 
@@ -65,7 +64,7 @@ func calculateBeats(streamer beep.StreamSeekCloser) []int {
 	// ~170*4= 680 beats
 
 	var beats []int
-	for i := 0; i < 680; i++ {
+	for i := 0; i < 675; i++ {
 		beats = append(beats, firstBeat+(beatInterval*i))
 	}
 	return beats
@@ -85,38 +84,66 @@ func (g *Game) Update() error {
 }
 
 func (g *Game) Draw(screen *ebiten.Image) {
+	const pixelsPerSecond = 100 // adjust this value as needed
+	//deltaTime := 1.0 / 60.0  // assuming a frame rate of 60 FPS
 
 	if upPressed {
 		ebitenutil.DebugPrintAt(screen, "Up pressed", 0, 100)
-		c := color.RGBA{0xff, 0x00, 0x00, 0xff}
+		var c color.Color
 		if onBeat(streamer.Position()) {
 			c = color.RGBA{0x00, 0xff, 0x00, 0xff}
 			score++
 		} else {
+			c = color.RGBA{0xff, 0x00, 0x00, 0xff}
 			score--
-			screen.Fill(c)
 		}
+		screen.Fill(c)
 	} else {
 		screen.Fill(color.Black)
 		ebitenutil.DebugPrintAt(screen, "No key pressed", 0, 100)
 	}
-	ebitenutil.DebugPrint(screen, strconv.Itoa(streamer.Position()))
+	currentSongPositionSeconds := streamer.Position() / int(format.SampleRate.N(time.Second))
+	totalSongLengthSeconds := streamer.Len() / int(format.SampleRate.N(time.Second))
+	ebitenutil.DebugPrint(screen, "Songtime (calculated): "+strconv.Itoa(currentSongPositionSeconds)+"s of "+strconv.Itoa(totalSongLengthSeconds)+"s")
 	ebitenutil.DebugPrintAt(screen, strconv.FormatBool(onBeat(streamer.Position())), 0, 110)
-	ebitenutil.DebugPrintAt(screen, "Score: "+strconv.Itoa(score), 0, 120)
-	ebitenutil.DebugPrintAt(screen, "Songtime (calculated): "+strconv.Itoa(streamer.Position()/44100), 0, 130)
+	ebitenutil.DebugPrintAt(screen, "Score: "+strconv.Itoa(score), screen.Bounds().Dx()-100, 0)
 
 	//vector.StrokeLine(screen, 0, 300, 0, 500, 1, color.White, false)
 	//ebitenutil.DrawLine(screen, 10, 10, 500, 10, color.White)
-	totalLength := 780
+	totalLength := screen.Bounds().Dx() * 10
+	totalRemaining := totalSongLengthSeconds - currentSongPositionSeconds
+	startPosition := (screen.Bounds().Dx() / 2) - (totalLength * (currentSongPositionSeconds / totalSongLengthSeconds)) + 100
 
-	totalSongLength := 4 * 60 * 1000
+	log.Println("Total length = ", totalLength)
+	log.Println("Total song length = ", totalSongLengthSeconds)
+	log.Println("Total remaining = ", totalRemaining)
+	log.Println("Start position = ", startPosition)
+
+	// Calculate the start and end times of the visible part of the song
+	startSongPositionSeconds := float32(currentSongPositionSeconds)
+	endSongPositionSeconds := startSongPositionSeconds + float32(totalLength)/float32(pixelsPerSecond)
+
+	// middle of the screen - ratio of elapsed length to total song length
 	for _, beat := range beats {
-		// Calculate the x-coordinate of the beat
-		x := float32(currentSongPositionX-(totalSongLength-(streamer.Position()/44100))) + float32(beat)/float32(totalSongLength)*float32(totalLength)
 
-		// Draw the beat as a small line
+		// Calculate the beat in seconds
+		beatSeconds := float32(beat) / 1000.0
+
+		// Skip this beat if it's not currently visible
+		if beatSeconds < startSongPositionSeconds || beatSeconds > endSongPositionSeconds {
+			continue
+		}
+
+		// Calculate the position of the beat relative to the start of the song
+		beatPosition := (float32(beatSeconds) / float32(totalSongLengthSeconds)) * float32(totalLength)
+
+		log.Println("Beat = ", beat)
+		// Calculate the x-coordinate of the beat
+		x := float32(startPosition) - beatPosition - float32(currentSongPositionSeconds)
+		log.Println("Beat x = ", x)
 		vector.StrokeLine(screen, x, 305, x, 315, 1, color.White, false)
 	}
+	// panic("die")
 	vector.StrokeRect(screen, float32(screen.Bounds().Size().X/2), float32(screen.Bounds().Size().Y/2), 10, 10, 1, color.White, false)
 
 }
@@ -125,10 +152,7 @@ func onBeat(position int) bool {
 	const tolerance = 45
 
 	var sampleRatePerMillisecond = format.SampleRate.N(time.Millisecond)
-	if sampleRatePerMillisecond <= 0 {
-		log.Println("Samples too low")
-		return false
-	}
+
 	positionInMilliseconds := position / sampleRatePerMillisecond
 	offSet := positionInMilliseconds - firstBeat
 	if offSet < 0 {
@@ -141,7 +165,6 @@ func onBeat(position int) bool {
 }
 
 func (g *Game) Layout(outsideWidth, outsideHeight int) (screenWidth, screenHeight int) {
-	currentSongPositionX = outsideWidth / 2
 	return outsideWidth, outsideHeight
 }
 
