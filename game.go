@@ -22,11 +22,12 @@ var streamer beep.StreamSeekCloser
 var upPressed bool
 var format beep.Format
 var beats []int
+var lastFrameOnBeat bool
 
 var score int
 
 const bpm = 170       // Burning - chase and status
-const firstBeat = 500 // approximate - need to find a way to calculate this
+const firstBeat = 450 // approximate - need to find a way to calculate this
 const beatInterval = 60000 / bpm
 
 type Game struct{}
@@ -80,76 +81,80 @@ func playMusic(streamer beep.StreamSeekCloser) {
 
 func (g *Game) Update() error {
 	upPressed = ebiten.IsKeyPressed(ebiten.KeySpace)
+	if upPressed {
+		lastFrameOnBeat = onBeat(streamer.Position())
+		if lastFrameOnBeat {
+			score++
+		} else {
+			score--
+		}
+	}
 	return nil
 }
 
 func (g *Game) Draw(screen *ebiten.Image) {
-	const pixelsPerSecond = 100 // adjust this value as needed
-	//deltaTime := 1.0 / 60.0  // assuming a frame rate of 60 FPS
+	drawBeats(screen)
+	drawPlayer(screen)
+	drawHud(screen)
+}
 
-	if upPressed {
-		ebitenutil.DebugPrintAt(screen, "Up pressed", 0, 100)
-		var c color.Color
-		if onBeat(streamer.Position()) {
-			c = color.RGBA{0x00, 0xff, 0x00, 0xff}
-			score++
-		} else {
-			c = color.RGBA{0xff, 0x00, 0x00, 0xff}
-			score--
-		}
-		screen.Fill(c)
+func drawPlayer(screen *ebiten.Image) {
+	var c color.Color
+	if lastFrameOnBeat {
+		c = color.RGBA{0x00, 0xff, 0x00, 0xff}
 	} else {
-		screen.Fill(color.Black)
-		ebitenutil.DebugPrintAt(screen, "No key pressed", 0, 100)
+		c = color.RGBA{0xff, 0x00, 0x00, 0xff}
 	}
+	var viewBoxHeight = 250
+	var viewBoxWidth = 30
+	vector.StrokeRect(screen, float32(screen.Bounds().Size().X/2)-float32(viewBoxWidth)/2, float32(screen.Bounds().Size().Y/2)-float32(viewBoxHeight/2), float32(viewBoxWidth), float32(viewBoxHeight), 3, c, false)
+}
+
+func drawHud(screen *ebiten.Image) {
 	currentSongPositionSeconds := streamer.Position() / int(format.SampleRate.N(time.Second))
 	totalSongLengthSeconds := streamer.Len() / int(format.SampleRate.N(time.Second))
 	ebitenutil.DebugPrint(screen, "Songtime (calculated): "+strconv.Itoa(currentSongPositionSeconds)+"s of "+strconv.Itoa(totalSongLengthSeconds)+"s")
-	ebitenutil.DebugPrintAt(screen, strconv.FormatBool(onBeat(streamer.Position())), 0, 110)
 	ebitenutil.DebugPrintAt(screen, "Score: "+strconv.Itoa(score), screen.Bounds().Dx()-100, 0)
+}
 
-	//vector.StrokeLine(screen, 0, 300, 0, 500, 1, color.White, false)
-	//ebitenutil.DrawLine(screen, 10, 10, 500, 10, color.White)
-	totalLength := screen.Bounds().Dx() * 10
-	totalRemaining := totalSongLengthSeconds - currentSongPositionSeconds
-	startPosition := (screen.Bounds().Dx() / 2) - (totalLength * (currentSongPositionSeconds / totalSongLengthSeconds)) + 100
+func drawBeats(screen *ebiten.Image) {
+	const pixelsPerMillisecond = 0.1
 
-	log.Println("Total length = ", totalLength)
-	log.Println("Total song length = ", totalSongLengthSeconds)
-	log.Println("Total remaining = ", totalRemaining)
-	log.Println("Start position = ", startPosition)
+	currentSongPositionMilliseconds := float32(streamer.Position() / int(format.SampleRate.N(time.Millisecond)))
 
-	// Calculate the start and end times of the visible part of the song
-	startSongPositionSeconds := float32(currentSongPositionSeconds)
-	endSongPositionSeconds := startSongPositionSeconds + float32(totalLength)/float32(pixelsPerSecond)
+	// Calculate the time it takes for a beat to move from the right edge of the screen to the left edge
+	beatTravelTime := float32(screen.Bounds().Dx()) / float32(pixelsPerMillisecond)
 
-	// middle of the screen - ratio of elapsed length to total song length
-	for _, beat := range beats {
+	endSongPositionMilliseconds := float32(currentSongPositionMilliseconds) + beatTravelTime
 
-		// Calculate the beat in seconds
-		beatSeconds := float32(beat) / 1000.0
+	for idx, beat := range beats {
 
-		// Skip this beat if it's not currently visible
-		if beatSeconds < startSongPositionSeconds || beatSeconds > endSongPositionSeconds {
+		if float32(beat) < currentSongPositionMilliseconds || float32(beat) > endSongPositionMilliseconds {
 			continue
 		}
 
-		// Calculate the position of the beat relative to the start of the song
-		beatPosition := (float32(beatSeconds) / float32(totalSongLengthSeconds)) * float32(totalLength)
+		beat1 := (idx == 0 || idx%4 == 0)
 
-		log.Println("Beat = ", beat)
-		// Calculate the x-coordinate of the beat
-		x := float32(startPosition) - beatPosition - float32(currentSongPositionSeconds)
-		log.Println("Beat x = ", x)
-		vector.StrokeLine(screen, x, 305, x, 315, 1, color.White, false)
+		relativeBeatSeconds := float32(beat) - currentSongPositionMilliseconds
+		beatPosition := float32(relativeBeatSeconds/beatTravelTime) * float32(screen.Bounds().Dx())
+		x := beatPosition
+		beatLineStart := float32(screen.Bounds().Size().Y/2) - 100
+		beatLineEnd := float32(screen.Bounds().Size().Y/2) + 100
+		var beatLineWidth float32
+		var beatLineColor color.Color
+		if beat1 {
+			beatLineWidth = 3
+			beatLineColor = color.White
+		} else {
+			beatLineWidth = 1
+			beatLineColor = color.RGBA{0xff, 0x00, 0x00, 0xff}
+		}
+		vector.StrokeLine(screen, x, beatLineStart, x, beatLineEnd, beatLineWidth, beatLineColor, false)
 	}
-	// panic("die")
-	vector.StrokeRect(screen, float32(screen.Bounds().Size().X/2), float32(screen.Bounds().Size().Y/2), 10, 10, 1, color.White, false)
-
 }
 
 func onBeat(position int) bool {
-	const tolerance = 45
+	const tolerance = 100
 
 	var sampleRatePerMillisecond = format.SampleRate.N(time.Millisecond)
 
